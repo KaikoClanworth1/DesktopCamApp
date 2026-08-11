@@ -113,14 +113,16 @@ Downloads are cached in `%LOCALAPPDATA%\DesktopCamApp\updates`. If the app lives
 
 ### Publishing a release
 
-CI does the build; tagging is all that's needed:
+`set(DCA_VERSION "...")` in `CMakeLists.txt` is the single source of truth for the version. Bump it, commit, then tag the same commit:
 
 ```bash
-git tag v1.2.0
-git push origin v1.2.0
+git tag v1.2.1
+git push origin main --tags
 ```
 
-`.github/workflows/release.yml` builds x64 Release, bakes the tag's version into the binary, and publishes `DesktopCamApp.exe` plus a zip. **The asset must keep the name `DesktopCamApp.exe`** — that is what the updater looks for.
+`.github/workflows/release.yml` **fails the release if the tag and `DCA_VERSION` disagree**, then builds x64 Release and publishes `DesktopCamApp.exe` plus a zip. **The asset must keep the name `DesktopCamApp.exe`** — that is what the updater looks for.
+
+> Don't make `DCA_VERSION` a CMake cache variable. A cached value sticks to whatever an existing build directory was first configured with, so bumping the line does nothing, the binary keeps reporting a stale version, and it offers itself the same update forever.
 
 ---
 

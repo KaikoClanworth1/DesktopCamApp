@@ -21,23 +21,31 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Resolve version from tag
+      # CMakeLists.txt is the single source of truth for the version. If the
+      # tag disagrees with it the build would ship a binary that reports the
+      # wrong version and offers itself an endless update, so fail loudly.
+      - name: Check tag matches DCA_VERSION
         id: ver
         shell: pwsh
         run: |
+          $line = Select-String -Path CMakeLists.txt -Pattern '^\s*set\(DCA_VERSION\s+"([^"]+)"\)' |
+                  Select-Object -First 1
+          if (-not $line) { throw "Could not find set(DCA_VERSION ...) in CMakeLists.txt" }
+          $src = $line.Matches[0].Groups[1].Value
+          "version=$src" >> $env:GITHUB_OUTPUT
+
           if ("${{ github.ref_type }}" -eq "tag") {
-            $v = "${{ github.ref_name }}" -replace '^v', ''
-          } else {
-            $v = "${{ github.event.inputs.version }}"
+            $tag = "${{ github.ref_name }}" -replace '^v', ''
+            if ($tag -ne $src) {
+              throw "Tag v$tag does not match DCA_VERSION $src in CMakeLists.txt. " +
+                    "Bump DCA_VERSION and re-tag."
+            }
           }
-          if (-not $v) { $v = "0.0.0" }
-          "version=$v" >> $env:GITHUB_OUTPUT
-          Write-Host "Building version $v"
+          Write-Host "Building version $src"
 
       - name: Configure
         run: >
           cmake -S . -B build -A x64
-          -DDCA_VERSION=${{ steps.ver.outputs.version }}
           -DDCA_GITHUB_OWNER=${{ github.repository_owner }}
           -DDCA_GITHUB_REPO=${{ github.event.repository.name }}
 

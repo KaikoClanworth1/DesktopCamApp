@@ -1,8 +1,13 @@
 cmake_minimum_required(VERSION 3.20)
 
-# Release CI passes -DDCA_VERSION=<tag without the leading v> so the binary
-# always reports the version it was tagged with.
-set(DCA_VERSION "1.2.0" CACHE STRING "Version baked into the executable")
+# THE version of the app. Bump this in the same commit you tag; the release
+# workflow refuses to publish if the git tag and this line disagree.
+#
+# Deliberately a plain variable, not a CACHE one: a cached version sticks to
+# whatever an existing build directory was first configured with, so editing
+# this line would silently do nothing and the binary would keep reporting a
+# stale version (and keep offering itself an update forever).
+set(DCA_VERSION "1.2.1")
 project(DesktopCamApp VERSION ${DCA_VERSION} LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
