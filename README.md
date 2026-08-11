@@ -122,7 +122,12 @@ git push origin main --tags
 
 `.github/workflows/release.yml` **fails the release if the tag and `DCA_VERSION` disagree**, then builds x64 Release and publishes `DesktopCamApp.exe` plus a zip. **The asset must keep the name `DesktopCamApp.exe`** — that is what the updater looks for.
 
-> Don't make `DCA_VERSION` a CMake cache variable. A cached value sticks to whatever an existing build directory was first configured with, so bumping the line does nothing, the binary keeps reporting a stale version, and it offers itself the same update forever.
+> Two traps worth knowing about, both of which shipped broken releases before v1.2.1:
+>
+> - **Don't pass the version on the command line from PowerShell.** PowerShell rewrites an unquoted `-DDCA_VERSION=1.2.3` into `-DDCA_VERSION=1` before CMake sees it, so `project(VERSION 1)` gets a version of `1`. GitHub's `run:` steps use PowerShell on Windows runners. Quote the argument (`"-DFOO=1.2.3"`), or better, keep the version in `CMakeLists.txt` where no shell can touch it.
+> - **Don't make `DCA_VERSION` a cache variable.** A cached value sticks to whatever a build directory was first configured with, so bumping the line does nothing and rebuilds keep reporting the old version.
+>
+> Either way the binary reports a wrong version, and since the updater compares it against the latest release, the app offers itself the same update forever — even straight after installing it.
 
 ---
 

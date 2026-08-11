@@ -43,11 +43,18 @@ jobs:
           }
           Write-Host "Building version $src"
 
+      # Quote every -D argument. `run:` steps use PowerShell on Windows
+      # runners, and PowerShell rewrites an unquoted -DFOO=1.2.3 into
+      # -DFOO=1 before the exe ever sees it. That silently shipped every
+      # release before v1.2.1 with a version of "1", which made the app
+      # offer itself the same update forever. The version now comes from
+      # CMakeLists.txt so no shell can touch it; these two are quoted so a
+      # repo or owner name containing a dot survives too.
       - name: Configure
         run: >
           cmake -S . -B build -A x64
-          -DDCA_GITHUB_OWNER=${{ github.repository_owner }}
-          -DDCA_GITHUB_REPO=${{ github.event.repository.name }}
+          "-DDCA_GITHUB_OWNER=${{ github.repository_owner }}"
+          "-DDCA_GITHUB_REPO=${{ github.event.repository.name }}"
 
       - name: Build
         run: cmake --build build --config Release
