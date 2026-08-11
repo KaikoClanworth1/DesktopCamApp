@@ -7,7 +7,17 @@ cmake_minimum_required(VERSION 3.20)
 # whatever an existing build directory was first configured with, so editing
 # this line would silently do nothing and the binary would keep reporting a
 # stale version (and keep offering itself an update forever).
-set(DCA_VERSION "1.2.1")
+set(DCA_VERSION "1.2.2")
+
+# A build with an empty or malformed version is worse than useless: the
+# updater parses it as 0.0.0, so every release looks newer and the app offers
+# itself the same update forever, even straight after installing it. Refuse to
+# configure rather than ship that.
+if(NOT DCA_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+    message(FATAL_ERROR
+        "DCA_VERSION must be MAJOR.MINOR.PATCH, got '${DCA_VERSION}'")
+endif()
+
 project(DesktopCamApp VERSION ${DCA_VERSION} LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)

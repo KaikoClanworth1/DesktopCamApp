@@ -18,6 +18,19 @@ namespace {
 constexpr const wchar_t* kUserAgent = L"DesktopCamApp-Updater/1.0";
 constexpr const char*    kAssetName = "DesktopCamApp.exe";
 
+// Second line of defence behind the CMake check: an empty version string
+// parses as 0.0.0, which makes every release look newer forever.
+static_assert(sizeof(DCA_VERSION_STRING) > 1,
+              "DCA_VERSION_STRING is empty — such a build offers itself an endless update");
+
+// A version we can actually compare needs at least one digit.
+bool LooksLikeVersion(const std::string& v)
+{
+    for (char c : v)
+        if (std::isdigit((unsigned char)c)) return true;
+    return false;
+}
+
 std::wstring Widen(const std::string& s)
 {
     if (s.empty()) return {};
@@ -349,6 +362,10 @@ void Updater::JoinWorker()
 
 bool Updater::IsNewer(const std::string& candidate, const std::string& current)
 {
+    // Never claim an update when either side isn't a comparable version —
+    // "unknown" must not read as 0.0.0.
+    if (!LooksLikeVersion(candidate) || !LooksLikeVersion(current)) return false;
+
     size_t a = 0, b = 0;
     for (int i = 0; i < 3; ++i) {
         const int ca = ParseVersionPart(candidate, a);
@@ -373,6 +390,13 @@ void Updater::CheckAsync()
 
 void Updater::CheckWorker()
 {
+    if (!LooksLikeVersion(CurrentVersion())) {
+        SetState(State::Failed,
+                 "This build has no version stamp, so updates can't be compared. "
+                 "Download the latest build from the releases page.");
+        return;
+    }
+
     const std::wstring url = L"https://api.github.com/repos/"
                              + Widen(DCA_GITHUB_OWNER) + L"/" + Widen(DCA_GITHUB_REPO)
                              + L"/releases/latest";
