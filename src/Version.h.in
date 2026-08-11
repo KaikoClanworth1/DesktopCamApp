@@ -1,0 +1,13 @@
+#pragma once
+
+// Generated from Version.h.in by CMake — do not edit the generated copy.
+
+#define DCA_VERSION_MAJOR  @PROJECT_VERSION_MAJOR@
+#define DCA_VERSION_MINOR  @PROJECT_VERSION_MINOR@
+#define DCA_VERSION_PATCH  @PROJECT_VERSION_PATCH@
+#define DCA_VERSION_STRING "@PROJECT_VERSION@"
+
+// Where the auto-updater looks for new releases.
+#define DCA_GITHUB_OWNER   "@DCA_GITHUB_OWNER@"
+#define DCA_GITHUB_REPO    "@DCA_GITHUB_REPO@"
+#define DCA_GITHUB_URL     "https://github.com/@DCA_GITHUB_OWNER@/@DCA_GITHUB_REPO@"

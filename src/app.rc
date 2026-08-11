@@ -1,0 +1,7 @@
+// Windows resource script — compiled by rc.exe via CMake.
+// Ordinal 101 (IDI_APP_ICON) is what the app loads into the window class;
+// Explorer picks up the lowest-numbered ICON resource as the .exe icon.
+
+#include "resource.h"
+
+IDI_APP_ICON ICON "icon.ico"

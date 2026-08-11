@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -A x64
+
+      - name: Build (Release)
+        run: cmake --build build --config Release
+
+      - name: Check the binary exists
+        shell: pwsh
+        run: |
+          if (-not (Test-Path build/Release/DesktopCamApp.exe)) {
+            throw "DesktopCamApp.exe was not produced"
+          }
+          Get-Item build/Release/DesktopCamApp.exe | Select-Object Name, Length

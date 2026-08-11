@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g. 1.1.0) — no release is published'
+        required: false
+        default: '0.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version from tag
+        id: ver
+        shell: pwsh
+        run: |
+          if ("${{ github.ref_type }}" -eq "tag") {
+            $v = "${{ github.ref_name }}" -replace '^v', ''
+          } else {
+            $v = "${{ github.event.inputs.version }}"
+          }
+          if (-not $v) { $v = "0.0.0" }
+          "version=$v" >> $env:GITHUB_OUTPUT
+          Write-Host "Building version $v"
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -A x64
+          -DDCA_VERSION=${{ steps.ver.outputs.version }}
+          -DDCA_GITHUB_OWNER=${{ github.repository_owner }}
+          -DDCA_GITHUB_REPO=${{ github.event.repository.name }}
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Stage artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item build/Release/DesktopCamApp.exe dist/DesktopCamApp.exe
+          Copy-Item README.md dist/README.md
+          Compress-Archive -Path dist/DesktopCamApp.exe, dist/README.md `
+                           -DestinationPath dist/DesktopCamApp-${{ steps.ver.outputs.version }}.zip -Force
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DesktopCamApp-${{ steps.ver.outputs.version }}
+          path: dist/DesktopCamApp.exe
+
+      # The in-app updater looks for an asset literally named
+      # DesktopCamApp.exe — keep that name on every release.
+      - name: Publish release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: DesktopCamApp ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            dist/DesktopCamApp.exe
+            dist/DesktopCamApp-${{ steps.ver.outputs.version }}.zip
