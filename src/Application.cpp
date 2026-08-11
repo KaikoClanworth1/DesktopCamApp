@@ -100,6 +100,8 @@ void Application::ApplyLoadedSettings()
     micVolumePct_ = settings_.micVolume;
     audio_.SetGain(micVolumePct_ / 100.0f);
     audio_.SetSwapLR(settings_.audioSwapLR);
+    audio_.SetTargetLatencyMs(settings_.audioLatencyMs);
+    audio_.SetLowLatencyMode(settings_.audioLowLatency);
 
     // Always start with the UI visible — F1 hides it for the rest of the
     // session but the state isn't remembered across launches.
@@ -152,6 +154,8 @@ void Application::CaptureCurrentSelectionIntoSettings()
     settings_.speakerId = (selSpeaker_ >= 0 && selSpeaker_ < (int)speakers_.size())
         ? speakers_[selSpeaker_].id : std::wstring();
     settings_.micVolume    = micVolumePct_;
+    settings_.audioLatencyMs  = audio_.GetTargetLatencyMs();
+    settings_.audioLowLatency = audio_.GetLowLatencyMode();
     settings_.uiHidden     = uiHidden_;
     settings_.debugConsole = IsDebugConsoleShown();
     settings_.borderless      = window_.IsBorderless();
@@ -425,6 +429,20 @@ void Application::SetAudioSwapLR(bool on)
 {
     audio_.SetSwapLR(on);
     settings_.audioSwapLR = on;
+    MarkSettingsDirty();
+}
+
+void Application::SetAudioTargetLatencyMs(int ms)
+{
+    audio_.SetTargetLatencyMs(ms);
+    settings_.audioLatencyMs = audio_.GetTargetLatencyMs();
+    MarkSettingsDirty();
+}
+
+void Application::SetAudioLowLatencyMode(bool on)
+{
+    audio_.SetLowLatencyMode(on);
+    settings_.audioLowLatency = on;
     MarkSettingsDirty();
 }
 

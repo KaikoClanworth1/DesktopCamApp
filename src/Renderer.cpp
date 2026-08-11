@@ -573,6 +573,15 @@ void Renderer::SubmitVideoTexture(ID3D11Texture2D* src, UINT subresource, int wi
     std::lock_guard<std::mutex> lk(videoTexMutex_);
     if (!EnsureVideoTexture(useW, useH, srcDesc.Format)) return;
 
+    // Stamp arrival so EndFrame can report capture->present latency. Only the
+    // first stamp between two draws survives, which is the one that actually
+    // reaches the screen.
+    {
+        LARGE_INTEGER now{};
+        QueryPerformanceCounter(&now);
+        pendingSubmitQpc_.store((uint64_t)now.QuadPart, std::memory_order_relaxed);
+    }
+
     if ((UINT)videoW_ == srcDesc.Width && (UINT)videoH_ == srcDesc.Height) {
         // Null box = copy the entire subresource; avoids the silent reject
         // that happens if an explicit box extends past the source's dims.
@@ -685,6 +694,9 @@ void Renderer::DrawVideo()
     std::lock_guard<std::mutex> lk(videoTexMutex_);
     if (!videoSRV_) return;
 
+    if (const uint64_t stamp = pendingSubmitQpc_.exchange(0, std::memory_order_relaxed))
+        drawnSubmitQpc_ = stamp;
+
     const bool nv12 = (videoFormat_ == DXGI_FORMAT_NV12);
 
     // Pick which SRV to sample: upscaled if the NVIDIA pass ran successfully
@@ -772,6 +784,18 @@ void Renderer::EndFrame()
     }
     HRESULT hr = swap_->Present(sync, flags);
     (void)hr;
+
+    if (drawnSubmitQpc_ != 0 && qpcFreq_ > 0) {
+        LARGE_INTEGER nowQpc{};
+        QueryPerformanceCounter(&nowQpc);
+        const float ms = (float)((double)((uint64_t)nowQpc.QuadPart - drawnSubmitQpc_)
+                                 * 1000.0 / (double)qpcFreq_);
+        // Ignore nonsense from a paused/resumed stream, then smooth.
+        if (ms >= 0.0f && ms < 1000.0f)
+            videoLatencyMs_ = (videoLatencyMs_ <= 0.0f) ? ms
+                                                        : videoLatencyMs_ * 0.9f + ms * 0.1f;
+        drawnSubmitQpc_ = 0;
+    }
 
     ++framesSinceTick_;
     const uint64_t now = GetTickCount64();

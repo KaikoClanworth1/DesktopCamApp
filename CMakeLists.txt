@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 # Release CI passes -DDCA_VERSION=<tag without the leading v> so the binary
 # always reports the version it was tagged with.
-set(DCA_VERSION "1.1.1" CACHE STRING "Version baked into the executable")
+set(DCA_VERSION "1.2.0" CACHE STRING "Version baked into the executable")
 project(DesktopCamApp VERSION ${DCA_VERSION} LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)

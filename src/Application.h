@@ -53,6 +53,18 @@ public:
     bool GetAudioSwapLR() const { return audio_.GetSwapLR(); }
     void SetAudioSwapLR(bool on);
 
+    // ---- Audio latency ----
+    int   AudioTargetLatencyMs() const { return audio_.GetTargetLatencyMs(); }
+    void  SetAudioTargetLatencyMs(int ms);
+    bool  AudioLowLatencyMode() const { return audio_.GetLowLatencyMode(); }
+    void  SetAudioLowLatencyMode(bool on);
+    float AudioLatencyMs()      const { return audio_.MeasuredLatencyMs(); }
+    float AudioCapturePeriodMs() const { return audio_.CapturePeriodMs(); }
+    float AudioRenderPeriodMs()  const { return audio_.RenderPeriodMs();  }
+    uint32_t AudioUnderruns() const { return audio_.Underruns(); }
+    uint32_t AudioOverruns()  const { return audio_.Overruns();  }
+    float VideoLatencyMs()    const { return renderer_.VideoLatencyMs(); }
+
     bool IsRunning() const { return running_; }
     void StartCapture();
     void StopCapture();

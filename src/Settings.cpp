@@ -73,6 +73,8 @@ bool Settings::Load()
         else if (key == "speaker_id")    speakerId    = Utf8ToWide(val);
         else if (key == "mic_volume")    micVolume    = (float)std::atof(val.c_str());
         else if (key == "audio_swap_lr") audioSwapLR  = (val == "1" || val == "true");
+        else if (key == "audio_latency_ms")   audioLatencyMs  = std::atoi(val.c_str());
+        else if (key == "audio_low_latency")  audioLowLatency = (val == "1" || val == "true");
         else if (key == "ui_hidden")     uiHidden     = (val == "1" || val == "true");
         else if (key == "debug_console") debugConsole = (val == "1" || val == "true");
         else if (key == "borderless")       borderless       = (val == "1" || val == "true");
@@ -108,6 +110,8 @@ bool Settings::Save() const
     f << "speaker_id="    << WideToUtf8(speakerId)   << "\n";
     f << "mic_volume="    << micVolume               << "\n";
     f << "audio_swap_lr=" << (audioSwapLR ? 1 : 0)   << "\n";
+    f << "audio_latency_ms="  << audioLatencyMs            << "\n";
+    f << "audio_low_latency=" << (audioLowLatency ? 1 : 0) << "\n";
     f << "ui_hidden="     << (uiHidden ? 1 : 0)      << "\n";
     f << "debug_console=" << (debugConsole ? 1 : 0)  << "\n";
     f << "borderless="       << (borderless ? 1 : 0)       << "\n";

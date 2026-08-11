@@ -7,6 +7,8 @@
 #include <mutex>
 #include <cstdint>
 
+#include "FrameRing.h"
+
 struct AudioDevice
 {
     std::wstring friendlyName;
@@ -33,13 +35,33 @@ public:
     float GetGain() const     { return targetGain_.load(); }
 
     // Swap the left/right channels on the way in — useful when a camera
-    // mic or USB headset reports L/R reversed.
+    // mic or USB headset genuinely reports L/R reversed.
     void  SetSwapLR(bool on) { swapLR_.store(on); }
     bool  GetSwapLR() const  { return swapLR_.load(); }
+
+    // How much audio we deliberately keep queued between capture and render,
+    // in milliseconds. Lower = less delay, more sensitive to scheduling
+    // hiccups. The render thread trims anything above this every period, so
+    // latency can't creep upwards over a long session.
+    void  SetTargetLatencyMs(int ms);
+    int   GetTargetLatencyMs() const { return targetLatencyMs_.load(); }
+
+    // Use IAudioClient3's minimum engine period when the driver offers one
+    // (typically ~3 ms instead of the default 10 ms). Applied on next Start.
+    void  SetLowLatencyMode(bool on) { lowLatency_.store(on); }
+    bool  GetLowLatencyMode() const  { return lowLatency_.load(); }
 
     // Realtime-ish metering. Updated from capture thread; readers may see
     // slightly stale values, which is fine for a VU meter.
     float CurrentPeak() const { return peak_.load(); }
+
+    // Measured end-to-end passthrough delay: capture period + queued audio +
+    // render period. 0 when not running.
+    float MeasuredLatencyMs() const;
+    float CapturePeriodMs()   const;
+    float RenderPeriodMs()    const;
+    uint32_t Underruns() const { return underruns_.load(); }
+    uint32_t Overruns()  const { return overruns_.load();  }
 
     std::wstring LastError();
 
@@ -48,14 +70,9 @@ private:
     void RenderThreadMain();
     void SetError(const std::wstring& msg);
 
-    // --- Ring buffer (SPSC, float samples, interleaved) ---
-    std::vector<float>      ring_;
-    size_t                  capacity_ = 0;
-    std::atomic<size_t>     writeIdx_{ 0 };
-    std::atomic<size_t>     readIdx_{ 0 };
-    size_t RingWrite(const float* src, size_t n);
-    size_t RingRead(float* dst, size_t n);
-    void   RingClear();
+    // Capture thread writes, render thread reads. See FrameRing.h for why
+    // this counts frames rather than samples.
+    FrameRing               ring_;
 
     std::atomic<bool>       running_{ false };
     std::thread             captureThread_;
@@ -68,7 +85,14 @@ private:
     float                   currentGain_ = 1.0f;
     std::atomic<bool>       swapLR_{ false };
 
+    std::atomic<int>        targetLatencyMs_{ 25 };
+    std::atomic<bool>       lowLatency_{ true };
+
     std::atomic<float>      peak_{ 0.0f };
+    std::atomic<uint32_t>   capturePeriodFrames_{ 0 };
+    std::atomic<uint32_t>   renderPeriodFrames_{ 0 };
+    std::atomic<uint32_t>   underruns_{ 0 };
+    std::atomic<uint32_t>   overruns_{ 0 };
 
     mutable std::mutex      errorMutex_;
     std::wstring            lastError_;

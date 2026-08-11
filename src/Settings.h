@@ -16,6 +16,11 @@ struct Settings
 
     float        micVolume     = 100.0f;
     bool         audioSwapLR   = false;
+
+    // Audio passthrough delay we deliberately keep queued, in ms, and whether
+    // to ask the driver for its minimum engine period (IAudioClient3).
+    int          audioLatencyMs   = 25;
+    bool         audioLowLatency  = true;
     bool         uiHidden      = false;
     bool         debugConsole  = false;
     bool         borderless    = false;

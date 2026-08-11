@@ -4,6 +4,7 @@
 #include <d3d11.h>
 #include <dxgi1_6.h>
 #include <wrl/client.h>
+#include <atomic>
 #include <cstdint>
 #include <mutex>
 #include <vector>
@@ -89,6 +90,10 @@ public:
 
     float Fps() const { return fps_; }
 
+    // Smoothed delay from "Media Foundation handed us a frame" to "we called
+    // Present with it", in milliseconds. 0 until a frame has been shown.
+    float VideoLatencyMs() const { return videoLatencyMs_; }
+
     // Optional NVIDIA Super Resolution pass on the video quad. Owned by
     // Application; Renderer only reads from it during DrawVideo.
     void  SetUpscaler(UpscalerNV* u) { upscaler_ = u; }
@@ -158,6 +163,12 @@ private:
     uint64_t                      lastFpsTickMs_ = 0;
     uint32_t                      framesSinceTick_ = 0;
     float                         fps_ = 0.0f;
+
+    // Capture-to-present latency. Stamped on the capture thread, consumed by
+    // the draw that first uses that frame.
+    std::atomic<uint64_t>         pendingSubmitQpc_{ 0 };
+    uint64_t                      drawnSubmitQpc_ = 0;
+    float                         videoLatencyMs_ = 0.0f;
 
     UpscalerNV*                   upscaler_ = nullptr;
 };

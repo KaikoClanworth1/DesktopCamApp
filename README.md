@@ -15,7 +15,8 @@ Built and tested with an **Anyoyo 4K60 capture card** at up to **3840×2160** an
 - **NV12 direct capture** — frames are taken in the card's native 4:2:0 layout and converted to RGB on the GPU by our own shader, skipping Media Foundation's per-frame RGB32 conversion (BT.601 / BT.709 / BT.2020, limited or full range)
 - **V-Sync or uncapped presentation** (DXGI tearing) with an optional FPS limiter, so a 144 Hz capture isn't held down to a 60 Hz desktop
 - Media Foundation video capture on the GPU path (DXGI device manager, zero CPU round-trip)
-- WASAPI mic passthrough with event-driven capture + render threads and a lock-free ring buffer
+- WASAPI mic passthrough with event-driven capture + render threads and a lock-free, frame-aligned ring buffer
+- **Low-latency audio**: IAudioClient3 minimum engine period where the driver allows it, an adjustable passthrough delay (5–200 ms), and automatic drift trimming so latency can't creep up over a session
 - Volume control from 0–200 % with smoothing and peak metering
 - Dear ImGui control panel: device dropdowns, mode picker, volume slider, Start/Stop, FPS, status
 - Borderless mode and borderless fullscreen toggle (`Alt+Enter`) — window styles OBS Game Capture hooks reliably
@@ -35,7 +36,8 @@ src/
   Window.*            Win32 window + borderless/fullscreen + message routing
   Renderer.*          DX11: swap chain, shaders (BGRA + NV12), present pacing
   VideoCapture.*      Media Foundation: IMFSourceReader, mode negotiation
-  AudioEngine.*       WASAPI capture + render with SPSC ring buffer
+  AudioEngine.*       WASAPI capture + render, low-latency engine periods
+  FrameRing.h         SPSC ring buffer, whole frames only (see the header)
   UpscalerNV.*        NVIDIA Broadcast SDK Super Resolution (optional)
   Updater.*           GitHub Releases check / download / self-replace
   UI.*                Dear ImGui control panel
@@ -81,6 +83,25 @@ Modes below 24 fps are never chosen automatically.
 The status line shows what was actually negotiated, e.g. `3840x2160 @ 60  NV12  GPU • capture 60 fps • render 60 fps`, plus the current display refresh rate.
 
 > If a mode doesn't behave, turn on **Debug console** in Advanced — it prints every native type the device offers, which one was chosen, and the negotiated output format.
+
+---
+
+## Latency
+
+The Audio panel shows live measurements: `Measured: 21 ms audio • 8 ms video (capture → present)`.
+
+**Audio** end-to-end delay is `capture period + queued audio + render period`.
+
+- **Audio delay** slider (Audio panel) sets how much is deliberately kept queued. It applies immediately — drag it down until you hear crackle, then back off. 20–30 ms suits most setups.
+- **Low-latency audio engine** (Advanced) asks the driver for its minimum engine period via `IAudioClient3`, typically ~3 ms instead of the default 10 ms. It falls back automatically on endpoints that refuse, and applies on the next Start.
+- The queue is trimmed from the oldest end every period. Capture and playback devices run off independent clocks, so without trimming any hiccup permanently adds delay and the buffer eventually sits full for the rest of the session.
+- If Advanced reports underruns, raise the Audio delay.
+
+**Video** latency is measured from the moment Media Foundation hands over a frame to the moment it is presented.
+
+- **Performance mode** (Advanced) holds the pre-render queue at one frame.
+- **Uncapped** presentation removes the wait for the display's vblank.
+- **NV12 direct capture** removes a full-frame color conversion from the path.
 
 ---
 
@@ -229,6 +250,12 @@ That is the display refresh. Switch Presentation to **Uncapped** in Advanced.
 
 **`SetCurrentMediaType(NV12/RGB32) failed`**
 The device rejected both output formats. Install the latest GPU drivers, and try pinning a specific Mode instead of Auto.
+
+**Left and right audio channels are swapped**
+Fixed in 1.2.0. The passthrough ring buffer used to count samples rather than frames, so a single truncated transfer (which happened whenever the output device stalled long enough to fill the buffer) shifted the stereo interleaving by one sample and swapped the channels for the rest of the session. It now transfers whole frames only. The **Swap L / R** checkbox remains for devices that genuinely report the channels reversed.
+
+**Audio crackles or drops out**
+Raise **Audio delay** in the Audio panel. Advanced shows the underrun/overrun counters and the negotiated device periods. If a particular endpoint misbehaves, turn off **Low-latency audio engine** in Advanced and press Start again.
 
 **No audio in Discord / OBS**
 Check that **Start** is clicked, the peak meter is animating, and the selected *Output* device is the one Discord captures.

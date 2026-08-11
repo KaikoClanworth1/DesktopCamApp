@@ -437,8 +437,30 @@ void UI::Draw(Application& app)
         if (ImGui::IsItemHovered()) {
             ImGui::BeginTooltip();
             ImGui::TextUnformatted("Flip left and right channels before passthrough.");
-            ImGui::TextUnformatted("Use this if your mic reports L/R reversed.");
+            ImGui::TextUnformatted("Only needed if your mic itself reports L/R reversed —");
+            ImGui::TextUnformatted("the channels can no longer drift out of sync on their own.");
             ImGui::EndTooltip();
+        }
+
+        // Passthrough delay. Applies live — the render thread trims the queue
+        // to this target every period.
+        int lat = app.AudioTargetLatencyMs();
+        ImGui::SetNextItemWidth(-120);
+        if (ImGui::SliderInt("Audio delay", &lat, 5, 200, "%d ms"))
+            app.SetAudioTargetLatencyMs(lat);
+        if (ImGui::IsItemHovered()) {
+            ImGui::BeginTooltip();
+            ImGui::TextUnformatted("How much audio is kept queued between the mic and the");
+            ImGui::TextUnformatted("speakers. Lower is snappier; too low and you'll hear");
+            ImGui::TextUnformatted("crackle when the system is busy. 20-30 ms suits most setups.");
+            ImGui::EndTooltip();
+        }
+
+        if (running) {
+            ImGui::PushStyleColor(ImGuiCol_Text, kDim);
+            ImGui::Text("Measured: %.0f ms audio  \xE2\x80\xA2  %.0f ms video (capture \xE2\x86\x92 present)",
+                        app.AudioLatencyMs(), app.VideoLatencyMs());
+            ImGui::PopStyleColor();
         }
     }
 
@@ -679,6 +701,31 @@ void UI::Draw(Application& app)
             ImGui::TextUnformatted("1080p144 sustainable. Turn off only if colors look wrong.");
             ImGui::TextUnformatted("Takes effect on the next Start.");
             ImGui::EndTooltip();
+        }
+
+        // ---- Audio engine -------------------------------------------------
+        ImGui::Spacing();
+        bool lowLat = app.AudioLowLatencyMode();
+        if (ImGui::Checkbox("Low-latency audio engine", &lowLat))
+            app.SetAudioLowLatencyMode(lowLat);
+        if (ImGui::IsItemHovered()) {
+            ImGui::BeginTooltip();
+            ImGui::TextUnformatted("Asks the driver for its minimum engine period");
+            ImGui::TextUnformatted("(often ~3 ms instead of 10 ms). Falls back automatically");
+            ImGui::TextUnformatted("if the endpoint won't do it. Takes effect on next Start.");
+            ImGui::EndTooltip();
+        }
+        if (app.IsRunning()) {
+            ImGui::PushStyleColor(ImGuiCol_Text, kDim);
+            ImGui::Text("Periods: %.1f ms capture / %.1f ms render",
+                        app.AudioCapturePeriodMs(), app.AudioRenderPeriodMs());
+            const uint32_t under = app.AudioUnderruns(), over = app.AudioOverruns();
+            ImGui::PopStyleColor();
+            if (under || over) {
+                ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.35f, 1.0f),
+                                   "Glitches: %u underrun / %u overrun \xE2\x80\x94 raise Audio delay",
+                                   under, over);
+            }
         }
 
         ImGui::Spacing();
