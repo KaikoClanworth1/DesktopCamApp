@@ -155,13 +155,34 @@ bool Renderer::CreateDeviceAndSwap(HWND hwnd, int width, int height)
     if (FAILED(hr)) return false;
 
     // Can this device sample NV12 directly? If not we have to make Media
-    // Foundation convert to RGB32 for us.
+    // Foundation convert to RGB32 for us. The capability bit alone isn't
+    // enough — what we actually need is a per-plane view, so build a tiny
+    // throwaway texture and try it. Getting this wrong at runtime would mean
+    // a black window, and there's no cheap way to renegotiate mid-stream.
     {
         UINT support = 0;
-        nv12Supported_ =
-            SUCCEEDED(device_->CheckFormatSupport(DXGI_FORMAT_NV12, &support)) &&
-            (support & D3D11_FORMAT_SUPPORT_TEXTURE2D) &&
-            (support & D3D11_FORMAT_SUPPORT_SHADER_SAMPLE);
+        bool ok = SUCCEEDED(device_->CheckFormatSupport(DXGI_FORMAT_NV12, &support)) &&
+                  (support & D3D11_FORMAT_SUPPORT_TEXTURE2D) &&
+                  (support & D3D11_FORMAT_SUPPORT_SHADER_SAMPLE);
+        if (ok) {
+            D3D11_TEXTURE2D_DESC td{};
+            td.Width = 16; td.Height = 16; td.MipLevels = 1; td.ArraySize = 1;
+            td.Format = DXGI_FORMAT_NV12; td.SampleDesc = { 1, 0 };
+            td.Usage = D3D11_USAGE_DEFAULT; td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+            CPtr<ID3D11Texture2D> probe;
+            ok = SUCCEEDED(device_->CreateTexture2D(&td, nullptr, probe.GetAddressOf()));
+            if (ok) {
+                D3D11_SHADER_RESOURCE_VIEW_DESC sd{};
+                sd.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+                sd.Texture2D.MipLevels = 1;
+                CPtr<ID3D11ShaderResourceView> luma, chroma;
+                sd.Format = DXGI_FORMAT_R8_UNORM;
+                ok = SUCCEEDED(device_->CreateShaderResourceView(probe.Get(), &sd, luma.GetAddressOf()));
+                sd.Format = DXGI_FORMAT_R8G8_UNORM;
+                ok = ok && SUCCEEDED(device_->CreateShaderResourceView(probe.Get(), &sd, chroma.GetAddressOf()));
+            }
+        }
+        nv12Supported_ = ok;
         wprintf(L"[dx] NV12 sampling %s\n", nv12Supported_ ? L"supported" : L"NOT supported");
     }
 
