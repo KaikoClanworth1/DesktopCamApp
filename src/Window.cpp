@@ -107,6 +107,13 @@ bool Window::ConsumeResized()
     return r;
 }
 
+bool Window::ConsumeDeviceChanged()
+{
+    bool r = deviceChanged_;
+    deviceChanged_ = false;
+    return r;
+}
+
 void Window::SetBorderless(bool borderless)
 {
     if (!hwnd_ || fullscreen_) return;
@@ -238,6 +245,12 @@ LRESULT Window::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         if (y < kDragStripPx) return HTCAPTION;
         return HTCLIENT;
     }
+
+    case WM_DEVICECHANGE:
+        // Broadcast on any device-tree change (USB camera, headset, capture
+        // card). Cheap flag now, enumeration happens on the next loop turn.
+        deviceChanged_ = true;
+        return TRUE;
 
     case WM_SIZE:
         if (wParam != SIZE_MINIMIZED)

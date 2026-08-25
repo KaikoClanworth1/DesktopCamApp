@@ -20,9 +20,10 @@ Built and tested with an **Anyoyo 4K60 capture card** at up to **3840×2160** an
 - Volume control from 0–200 % with smoothing and peak metering
 - Dear ImGui control panel: device dropdowns, mode picker, volume slider, Start/Stop, FPS, status
 - Borderless mode and borderless fullscreen toggle (`Alt+Enter`) — window styles OBS Game Capture hooks reliably
-- Optional NVIDIA RTX Super Resolution upscaling (Broadcast SDK, experimental)
+- Optional NVIDIA RTX Super Resolution upscaling (Broadcast SDK, experimental) — loaded on demand, not at startup
+- **Small resting footprint**: ~54 MB RAM and ~37 MB VRAM idle; frame buffers and the AI SDK are released the moment they stop being used
 - **Built-in auto-updater** backed by GitHub Releases
-- Automatic device hot-reload every 2 seconds (plus manual Refresh buttons)
+- Device hot-plug detection driven by Windows device-change events (plus manual Refresh buttons)
 - Multi-threaded architecture (main render / video capture / audio capture / audio render)
 
 ---
@@ -83,6 +84,26 @@ Modes below 24 fps are never chosen automatically.
 The status line shows what was actually negotiated, e.g. `3840x2160 @ 60  NV12  GPU • capture 60 fps • render 60 fps`, plus the current display refresh rate.
 
 > If a mode doesn't behave, turn on **Debug console** in Advanced — it prints every native type the device offers, which one was chosen, and the negotiated output format.
+
+---
+
+## Memory footprint
+
+Measured on an idle app (window open, capture stopped), before and after the 1.3.0 audit:
+
+| | RAM (working set) | RAM (private) | VRAM (dedicated) |
+|---|---|---|---|
+| 1.2.2 | 185 MB | 424 MB | 251 MB |
+| 1.3.0 | **54 MB** | **58 MB** | **37 MB** |
+
+Where it went:
+
+- **The AI upscaler is no longer loaded at startup.** Initializing the NVIDIA Broadcast SDK pulls in TensorRT (~210 MB of module footprint), the CUDA runtime and a CUDA context. That happened on every launch even though AI upscaling defaults to off. It now loads when you switch the feature on and is released when you switch it off, so you only pay for it while using it.
+- **Frame buffers are released when capture stops.** The capture texture, its views, the NV12→BGRA scratch target and the CPU flip buffer used to live until exit — up to ~45 MB of VRAM and ~33 MB of RAM at 4K, held while doing nothing.
+- **The upscaler's own buffers are released with it.** At 1080p→2x those are roughly 190 MB of CUDA and D3D allocations that previously survived turning the feature off.
+- `imgui_demo.cpp` is no longer compiled in, and ImGui's system-memory copy of the font atlas is freed after upload.
+
+Turning AI upscaling on deliberately brings the SDK cost back (~250 MB VRAM); the panel says so before you enable it.
 
 ---
 

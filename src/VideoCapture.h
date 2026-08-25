@@ -106,7 +106,8 @@ public:
     bool FullRange()   const { return fullRange_;   }
 
     // Human-readable summary of what we negotiated, for the UI/status line.
-    std::string NegotiatedSummary() const;
+    // Built once per Start(); the status line asks for it every frame.
+    const std::string& NegotiatedSummary() const { return summary_; }
 
     std::wstring LastError();
 
@@ -118,6 +119,7 @@ private:
     void OnReadError(HRESULT hr);
     void RequestNextSample();
     void UpdateCaptureFps();
+    void UpdateSummary();
     void SetError(const std::wstring& msg);
 
     // COM/MF state
@@ -133,6 +135,7 @@ private:
     int              colorMatrix_ = 1;      // BT.709 by default (HD)
     bool             fullRange_   = false;  // studio/limited by default
     float            negotiatedFps_ = 0.0f;
+    std::string      summary_ = "Idle";
     int              width_  = 0;
     int              height_ = 0;
 

@@ -64,7 +64,11 @@ static std::wstring GetDeviceFriendlyName(IMMDevice* device)
 
 static std::vector<AudioDevice> EnumerateFlow(EDataFlow flow)
 {
-    CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    // Balanced: the old code called CoInitializeEx here and never matched it
+    // with CoUninitialize, so every enumeration bumped the apartment's
+    // reference count for the life of the process.
+    ComApartment apt;
+    (void)apt;
 
     std::vector<AudioDevice> out;
     CPtr<IMMDeviceEnumerator> enumer;

@@ -7,7 +7,7 @@ cmake_minimum_required(VERSION 3.20)
 # whatever an existing build directory was first configured with, so editing
 # this line would silently do nothing and the binary would keep reporting a
 # stale version (and keep offering itself an update forever).
-set(DCA_VERSION "1.2.2")
+set(DCA_VERSION "1.3.0")
 
 # A build with an empty or malformed version is worse than useless: the
 # updater parses it as 0.0.0, so every release looks newer and the app offers
@@ -56,7 +56,8 @@ add_library(imgui STATIC
     ${imgui_SOURCE_DIR}/imgui_draw.cpp
     ${imgui_SOURCE_DIR}/imgui_tables.cpp
     ${imgui_SOURCE_DIR}/imgui_widgets.cpp
-    ${imgui_SOURCE_DIR}/imgui_demo.cpp
+    # imgui_demo.cpp is deliberately not built — it is ~500 KB of sample code
+    # this app never calls, and it lands in the working set of every process.
     ${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_dx11.cpp
 )

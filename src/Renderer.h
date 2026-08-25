@@ -70,6 +70,11 @@ public:
     // Expects BGRA. Positive stride = top-down, negative = bottom-up.
     void  SubmitVideoFrame(int width, int height, int stride, const uint8_t* bgra);
 
+    // Drop every frame buffer: the capture texture, its views, the NV12->BGRA
+    // scratch target and the CPU flip buffer. At 4K that is tens of MB of VRAM
+    // plus up to 33 MB of RAM, all of it dead weight once capture stops.
+    void  ReleaseVideoResources();
+
     // YUV->RGB coefficients for the NV12 path.
     // matrix: 0 = BT.601, 1 = BT.709, 2 = BT.2020.
     void  SetVideoColorSpace(int matrix, bool fullRange);

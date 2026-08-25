@@ -29,6 +29,12 @@ public:
     // since the previous call.
     bool ConsumeResized();
 
+    // Same, for WM_DEVICECHANGE. Windows broadcasts DBT_DEVNODES_CHANGED to
+    // every top-level window with no registration needed, which lets us react
+    // to a camera or mic being plugged in instead of re-enumerating on a
+    // timer from the render loop.
+    bool ConsumeDeviceChanged();
+
     HWND Hwnd() const { return hwnd_; }
     int  Width() const { return width_; }
     int  Height() const { return height_; }
@@ -44,6 +50,7 @@ private:
     int   width_ = 0;
     int   height_ = 0;
     bool  resized_ = false;
+    bool  deviceChanged_ = false;
     bool  fullscreen_ = false;
     bool  borderless_ = false;
     WINDOWPLACEMENT savedPlacement_{};

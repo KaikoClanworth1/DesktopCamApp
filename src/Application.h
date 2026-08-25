@@ -30,6 +30,13 @@ public:
     const std::vector<AudioDevice>& MicrophoneDevices() const { return mics_;     }
     const std::vector<AudioDevice>& SpeakerDevices()    const { return speakers_; }
     const std::vector<CameraMode>&  CameraModes()       const { return cameraModes_; }
+
+    // UTF-8 copies of the device names, built once per enumeration. ImGui
+    // needs UTF-8 and the panel redraws every frame, so converting from
+    // UTF-16 in the draw path meant a heap allocation per device per frame.
+    const std::vector<std::string>& CameraNames()  const { return cameraNames_;  }
+    const std::vector<std::string>& MicNames()     const { return micNames_;     }
+    const std::vector<std::string>& SpeakerNames() const { return speakerNames_; }
     int  SelectedCameraModeIndex() const { return selCameraMode_; }
     void SetSelectedCameraModeIndex(int i);
 
@@ -88,7 +95,7 @@ public:
     float    Fps()             const { return renderer_.Fps(); }
     float    CaptureFps()      const { return video_.CaptureFps(); }
     float    NegotiatedFps()   const { return video_.NegotiatedFps(); }
-    std::string CaptureSummary() const { return video_.NegotiatedSummary(); }
+    const std::string& CaptureSummary() const { return video_.NegotiatedSummary(); }
     void     VideoSize(int& w, int& h) const { w = video_.Width(); h = video_.Height(); }
     uint64_t CaptureElapsedMs() const { return running_ && captureStartMs_ ? (GetTickCount64() - captureStartMs_) : 0; }
 
@@ -109,10 +116,16 @@ public:
     // NVIDIA Super Resolution (experimental).
     UpscalerNV& Upscaler() { return upscaler_; }
     const UpscalerNV& Upscaler() const { return upscaler_; }
+    // Loads the Broadcast SDK if it isn't already up. Returns false when the
+    // SDK/GPU can't support it.
+    bool EnsureUpscalerLoaded();
     void SetUpscalerEnabled(bool on);
     void SetUpscalerScale(float s);
     void SetUpscalerMode(int m);
     void RetryUpscalerInit();
+    // True when the SDK loaded cleanly during a diagnostic run and was then
+    // released again because the feature itself is switched off.
+    bool UpscalerProbeOk() const { return upscalerProbeOk_; }
 
     bool IsDebugConsoleOn() const;
     void SetDebugConsoleOn(bool on);
@@ -147,6 +160,12 @@ private:
     std::vector<AudioDevice> speakers_;
     std::vector<CameraMode>  cameraModes_;   // modes for the currently-selected camera
 
+    std::vector<std::string> cameraNames_;
+    std::vector<std::string> micNames_;
+    std::vector<std::string> speakerNames_;
+    void RebuildDeviceNameCache();
+    void RefreshDeviceListsIfChanged();
+
     int   selCamera_     = -1;
     int   selCameraMode_ = -1;              // -1 = Auto
     int   selMic_        = -1;
@@ -158,6 +177,7 @@ private:
     bool  running_      = false;
     bool  uiHidden_     = false;
     bool  performanceMode_ = false;
+    bool  upscalerProbeOk_ = false;
 
     uint64_t lastEnumTickMs_ = 0;
     uint64_t captureStartMs_ = 0;

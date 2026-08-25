@@ -210,15 +210,16 @@ std::wstring VideoCapture::LastError()
     return lastError_;
 }
 
-std::string VideoCapture::NegotiatedSummary() const
+// Rebuilds the cached status summary from the negotiated state.
+void VideoCapture::UpdateSummary()
 {
-    if (width_ <= 0 || height_ <= 0) return "Idle";
+    if (width_ <= 0 || height_ <= 0) { summary_ = "Idle"; return; }
     char buf[128];
     std::snprintf(buf, sizeof(buf), "%dx%d @ %.0f  %s  %s",
                   width_, height_, negotiatedFps_,
                   format_ == CaptureFormat::NV12 ? "NV12" : "BGRA",
                   gpuPath_ ? "GPU" : "CPU");
-    return buf;
+    summary_ = buf;
 }
 
 // Build a CameraMode descriptor from an IMFMediaType (shared with the
@@ -600,6 +601,8 @@ bool VideoCapture::Start(ID3D11Device* device, const std::wstring& symbolicLink,
         }
     }
 
+    UpdateSummary();
+
     running_.store(true);
     framesSinceTick_.store(0);
     lastFpsTickMs_.store(GetTickCount64());
@@ -642,6 +645,7 @@ void VideoCapture::Stop()
     width_ = height_ = 0;
     negotiatedFps_ = 0.0f;
     captureFps_.store(0.0f);
+    UpdateSummary();
 }
 
 void VideoCapture::RequestNextSample()

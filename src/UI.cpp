@@ -103,6 +103,12 @@ bool UI::Init(HWND hwnd, ID3D11Device* device, ID3D11DeviceContext* ctx)
 
     if (!ImGui_ImplWin32_Init(hwnd)) return false;
     if (!ImGui_ImplDX11_Init(device, ctx)) return false;
+
+    // Build the atlas now and drop ImGui's CPU-side copy — the backend has
+    // uploaded it to the GPU and nothing reads the system-memory pixels again.
+    ImGui_ImplDX11_CreateDeviceObjects();
+    io.Fonts->ClearTexData();
+
     initialized_ = true;
     return true;
 }
@@ -309,23 +315,21 @@ void UI::Draw(Application& app)
     // ---- Video ------------------------------------------------------------
     SectionLabel("Video");
     {
-        const auto& devices = app.CameraDevices();
+        const auto& names = app.CameraNames();
         int current = app.SelectedCameraIndex();
-        std::string preview = (current >= 0 && current < (int)devices.size())
-            ? Utf8(devices[current].friendlyName) : std::string("<none>");
+        const char* preview = (current >= 0 && current < (int)names.size())
+            ? names[current].c_str() : "<none>";
 
         ImGui::PushStyleColor(ImGuiCol_Text, kDim);
         ImGui::TextUnformatted("Camera");
         ImGui::PopStyleColor();
 
         ImGui::SetNextItemWidth(-120);
-        if (ImGui::BeginCombo("##camera", preview.c_str()))
+        if (ImGui::BeginCombo("##camera", preview))
         {
-            for (int i = 0; i < (int)devices.size(); ++i) {
+            for (int i = 0; i < (int)names.size(); ++i) {
                 const bool selected = (i == current);
-                std::string label = Utf8(devices[i].friendlyName);
-                if (label.empty()) label = "Camera " + std::to_string(i);
-                if (ImGui::Selectable(label.c_str(), selected))
+                if (ImGui::Selectable(names[i].c_str(), selected))
                     app.SetSelectedCameraIndex(i);
                 if (selected) ImGui::SetItemDefaultFocus();
             }
@@ -385,40 +389,36 @@ void UI::Draw(Application& app)
     // ---- Audio ------------------------------------------------------------
     SectionLabel("Audio");
     {
-        const auto& mics = app.MicrophoneDevices();
+        const auto& micNames = app.MicNames();
         int current = app.SelectedMicIndex();
-        std::string preview = (current >= 0 && current < (int)mics.size())
-            ? Utf8(mics[current].friendlyName) : std::string("<none>");
+        const char* preview = (current >= 0 && current < (int)micNames.size())
+            ? micNames[current].c_str() : "<none>";
 
         ImGui::SetNextItemWidth(-120);
-        if (ImGui::BeginCombo("Microphone", preview.c_str()))
+        if (ImGui::BeginCombo("Microphone", preview))
         {
-            for (int i = 0; i < (int)mics.size(); ++i) {
+            for (int i = 0; i < (int)micNames.size(); ++i) {
                 const bool selected = (i == current);
-                std::string label = Utf8(mics[i].friendlyName);
-                if (label.empty()) label = "Mic " + std::to_string(i);
-                if (ImGui::Selectable(label.c_str(), selected))
+                if (ImGui::Selectable(micNames[i].c_str(), selected))
                     app.SetSelectedMicIndex(i);
                 if (selected) ImGui::SetItemDefaultFocus();
             }
             ImGui::EndCombo();
         }
 
-        const auto& outs = app.SpeakerDevices();
+        const auto& outNames = app.SpeakerNames();
         int curOut = app.SelectedSpeakerIndex();
-        std::string outPreview = (curOut >= 0 && curOut < (int)outs.size())
-            ? Utf8(outs[curOut].friendlyName) : std::string("<system default>");
+        const char* outPreview = (curOut >= 0 && curOut < (int)outNames.size())
+            ? outNames[curOut].c_str() : "<system default>";
 
         ImGui::SetNextItemWidth(-120);
-        if (ImGui::BeginCombo("Output", outPreview.c_str()))
+        if (ImGui::BeginCombo("Output", outPreview))
         {
             if (ImGui::Selectable("<system default>", curOut < 0))
                 app.SetSelectedSpeakerIndex(-1);
-            for (int i = 0; i < (int)outs.size(); ++i) {
+            for (int i = 0; i < (int)outNames.size(); ++i) {
                 const bool selected = (i == curOut);
-                std::string label = Utf8(outs[i].friendlyName);
-                if (label.empty()) label = "Output " + std::to_string(i);
-                if (ImGui::Selectable(label.c_str(), selected))
+                if (ImGui::Selectable(outNames[i].c_str(), selected))
                     app.SetSelectedSpeakerIndex(i);
                 if (selected) ImGui::SetItemDefaultFocus();
             }
@@ -749,7 +749,8 @@ void UI::Draw(Application& app)
         auto& up = app.Upscaler();
         const auto status = up.GetStatus();
 
-        const char* statusLabel = "Not initialized";
+        const char* statusLabel =
+            "Not loaded â the SDK loads only while this is switched on";
         ImVec4      statusColor(0.7f, 0.7f, 0.7f, 1.0f);
         switch (status) {
             case UpscalerNV::Status::Ready:
@@ -774,12 +775,22 @@ void UI::Draw(Application& app)
         if (!msg.empty())
             ImGui::TextDisabled("%s", Utf8(msg).c_str());
 
-        if (ImGui::Button("Retry init (prints diagnostics to debug console)"))
-            app.RetryUpscalerInit();
+        ImGui::PushStyleColor(ImGuiCol_Text, kDim);
+        ImGui::TextWrapped("Loading the SDK costs roughly 250 MB of VRAM and 200 MB of RAM "
+                           "(TensorRT + CUDA), so it stays unloaded until you switch this on "
+                           "and is released again when you switch it off.");
+        ImGui::PopStyleColor();
 
-        // Enable toggle — only allowed if SDK ready.
-        const bool canToggle = (status == UpscalerNV::Status::Ready);
-        if (!canToggle) ImGui::BeginDisabled();
+        if (ImGui::Button("Test SDK (loads, reports, then releases it)"))
+            app.RetryUpscalerInit();
+        if (app.UpscalerProbeOk() && status != UpscalerNV::Status::Ready) {
+            ImGui::TextColored(kGreen,
+                "SDK check passed \xE2\x80\x94 it will load when you switch this on.");
+        }
+
+        // The toggle is always live: flipping it on is what loads the SDK.
+        // Everything below it only makes sense once that succeeded.
+        const bool ready = (status == UpscalerNV::Status::Ready);
         ImGui::TextUnformatted("NVIDIA RTX AI Upscaling");
         ImGui::SameLine();
         ImGui::Dummy(ImVec2(ImGui::GetContentRegionAvail().x - 60, 0));
@@ -787,6 +798,8 @@ void UI::Draw(Application& app)
         bool nvOn = up.IsEnabled();
         if (ToggleSwitch("##nvsrtoggle", &nvOn))
             app.SetUpscalerEnabled(nvOn);
+
+        if (!ready) ImGui::BeginDisabled();
 
         // Scale combo — the SR model tops out at a 4K output, so which scales
         // are offered depends on what the card is actually feeding us.
@@ -825,9 +838,9 @@ void UI::Draw(Application& app)
         const int pickSr = Segmented("srmode", curSr, "Quality", "Performance");
         if (pickSr != curSr) app.SetUpscalerMode(pickSr);
 
-        if (!canToggle) ImGui::EndDisabled();
+        if (!ready) ImGui::EndDisabled();
 
-        if (nvOn && canToggle && up.OutputWidth() > 0) {
+        if (nvOn && ready && up.OutputWidth() > 0) {
             ImGui::TextDisabled("Output: %dx%d", up.OutputWidth(), up.OutputHeight());
         }
     }

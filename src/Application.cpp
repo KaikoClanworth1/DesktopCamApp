@@ -38,9 +38,12 @@ bool Application::Initialize(const wchar_t* title, int width, int height)
     if (!ui_.Init(window_.Hwnd(), renderer_.Device(), renderer_.Context()))
         return false;
 
-    // Best-effort NVIDIA SR init. Renderer will simply not call through if
-    // the upscaler isn't Ready / Enabled.
-    upscaler_.Initialize(renderer_.Device(), renderer_.Context());
+    // The NVIDIA Broadcast SDK is NOT loaded here. Initializing it pulls in
+    // TensorRT (~210 MB of module footprint), the CUDA runtime and a CUDA
+    // context — several hundred MB of RAM and VRAM — for a feature that is
+    // off by default. EnsureUpscalerLoaded() brings it up the moment the
+    // user turns AI upscaling on; ApplyLoadedSettings does it at startup for
+    // users who left it on.
     renderer_.SetUpscaler(&upscaler_);
 
     // Route window messages through F1-handling first, then ImGui. When the
@@ -140,7 +143,105 @@ void Application::ApplyLoadedSettings()
     if (savedScale < 1.29f) savedScale = 1.3f;
     upscaler_.SetScale(savedScale);
     upscaler_.SetMode(settings_.nvsrMode);
-    upscaler_.SetEnabled(settings_.nvsrEnabled);
+    if (settings_.nvsrEnabled)
+        SetUpscalerEnabled(true);   // loads the SDK on demand
+}
+
+namespace {
+
+std::string ToUtf8(const std::wstring& w)
+{
+    if (w.empty()) return {};
+    const int n = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), (int)w.size(),
+                                      nullptr, 0, nullptr, nullptr);
+    std::string s((size_t)n, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, w.c_str(), (int)w.size(), s.data(), n, nullptr, nullptr);
+    return s;
+}
+
+} // namespace
+
+void Application::RebuildDeviceNameCache()
+{
+    cameraNames_.clear();
+    cameraNames_.reserve(cameras_.size());
+    for (size_t i = 0; i < cameras_.size(); ++i) {
+        std::string n = ToUtf8(cameras_[i].friendlyName);
+        cameraNames_.push_back(n.empty() ? ("Camera " + std::to_string(i)) : std::move(n));
+    }
+
+    micNames_.clear();
+    micNames_.reserve(mics_.size());
+    for (size_t i = 0; i < mics_.size(); ++i) {
+        std::string n = ToUtf8(mics_[i].friendlyName);
+        micNames_.push_back(n.empty() ? ("Mic " + std::to_string(i)) : std::move(n));
+    }
+
+    speakerNames_.clear();
+    speakerNames_.reserve(speakers_.size());
+    for (size_t i = 0; i < speakers_.size(); ++i) {
+        std::string n = ToUtf8(speakers_[i].friendlyName);
+        speakerNames_.push_back(n.empty() ? ("Output " + std::to_string(i)) : std::move(n));
+    }
+}
+
+// Re-enumerate and adopt the result only when something actually changed.
+// Selections are re-resolved by device identity, so unplugging one device no
+// longer silently shifts the user onto a different one.
+void Application::RefreshDeviceListsIfChanged()
+{
+    auto newCams = VideoCapture::EnumerateDevices();
+    auto newMics = AudioEngine::EnumerateCaptureDevices();
+    auto newOuts = AudioEngine::EnumerateRenderDevices();
+
+    auto sameVideo = [](const std::vector<VideoDevice>& a, const std::vector<VideoDevice>& b) {
+        if (a.size() != b.size()) return false;
+        for (size_t i = 0; i < a.size(); ++i)
+            if (a[i].symbolicLink != b[i].symbolicLink) return false;
+        return true;
+    };
+    auto sameAudio = [](const std::vector<AudioDevice>& a, const std::vector<AudioDevice>& b) {
+        if (a.size() != b.size()) return false;
+        for (size_t i = 0; i < a.size(); ++i)
+            if (a[i].id != b[i].id) return false;
+        return true;
+    };
+
+    bool changed = false;
+
+    if (!sameVideo(newCams, cameras_)) {
+        const std::wstring keep = (selCamera_ >= 0 && selCamera_ < (int)cameras_.size())
+            ? cameras_[selCamera_].symbolicLink : std::wstring();
+        cameras_ = std::move(newCams);
+        selCamera_ = cameras_.empty() ? -1 : 0;
+        for (size_t i = 0; i < cameras_.size(); ++i)
+            if (cameras_[i].symbolicLink == keep) { selCamera_ = (int)i; break; }
+        changed = true;
+    }
+
+    if (!sameAudio(newMics, mics_)) {
+        const std::wstring keep = (selMic_ >= 0 && selMic_ < (int)mics_.size())
+            ? mics_[selMic_].id : std::wstring();
+        mics_ = std::move(newMics);
+        selMic_ = mics_.empty() ? -1 : 0;
+        for (size_t i = 0; i < mics_.size(); ++i)
+            if (mics_[i].id == keep) { selMic_ = (int)i; break; }
+        changed = true;
+    }
+
+    if (!sameAudio(newOuts, speakers_)) {
+        const std::wstring keep = (selSpeaker_ >= 0 && selSpeaker_ < (int)speakers_.size())
+            ? speakers_[selSpeaker_].id : std::wstring();
+        speakers_ = std::move(newOuts);
+        selSpeaker_ = -1;   // -1 == system default
+        if (!keep.empty()) {
+            for (size_t i = 0; i < speakers_.size(); ++i)
+                if (speakers_[i].id == keep) { selSpeaker_ = (int)i; break; }
+        }
+        changed = true;
+    }
+
+    if (changed) RebuildDeviceNameCache();
 }
 
 void Application::CaptureCurrentSelectionIntoSettings()
@@ -301,9 +402,31 @@ void Application::SetCustomTitle(const std::wstring& title)
     }
 }
 
+bool Application::EnsureUpscalerLoaded()
+{
+    if (upscaler_.IsReady()) return true;
+    return upscaler_.Initialize(renderer_.Device(), renderer_.Context());
+}
+
 void Application::SetUpscalerEnabled(bool on)
 {
-    upscaler_.SetEnabled(on);
+    if (on) {
+        // Pay for the SDK only when it is actually wanted. If it can't load,
+        // leave the toggle off so the UI reflects reality.
+        if (!EnsureUpscalerLoaded()) {
+            upscaler_.SetEnabled(false);
+            settings_.nvsrEnabled = false;
+            MarkSettingsDirty();
+            return;
+        }
+        upscaler_.SetEnabled(true);
+    } else {
+        // Hand back the CUDA/TensorRT allocations and unload the DLLs rather
+        // than sitting on hundreds of MB for a feature that is switched off.
+        upscaler_.SetEnabled(false);
+        upscaler_.Shutdown();
+    }
+    settings_.nvsrEnabled = upscaler_.IsEnabled();
     MarkSettingsDirty();
 }
 
@@ -321,8 +444,18 @@ void Application::SetUpscalerMode(int m)
 
 void Application::RetryUpscalerInit()
 {
+    upscalerProbeOk_ = false;
     upscaler_.Shutdown();
-    upscaler_.Initialize(renderer_.Device(), renderer_.Context());
+    const bool ok = upscaler_.Initialize(renderer_.Device(), renderer_.Context());
+
+    if (ok && !upscaler_.IsEnabled()) {
+        // Diagnostics only. Loading the SDK costs ~250 MB of VRAM, so hand it
+        // straight back rather than holding it for a feature that is off; the
+        // toggle will load it again for real.
+        upscaler_.Shutdown();
+        upscalerProbeOk_ = true;
+    }
+    if (!upscaler_.IsReady()) upscaler_.SetEnabled(false);
 }
 
 int Application::Run()
@@ -333,20 +466,16 @@ int Application::Run()
         if (window_.ConsumeResized())
             renderer_.Resize(window_.Width(), window_.Height());
 
-        // Hot-reload device lists every 2s.
+        // Device lists refresh when Windows reports a device-tree change,
+        // with a slow safety net. The old code re-enumerated every 2 s from
+        // this loop: MFEnumDeviceSources plus two COM endpoint enumerations
+        // costs several milliseconds — a dropped frame at 144 Hz, every two
+        // seconds — and the freshly allocated lists were thrown away unless
+        // the device *count* happened to change.
         const uint64_t now = GetTickCount64();
-        if (now - lastEnumTickMs_ > 2000) {
+        if (window_.ConsumeDeviceChanged() || now - lastEnumTickMs_ > 30000) {
             lastEnumTickMs_ = now;
-            // Light-weight refresh — safe to call any time.
-            auto newCams = VideoCapture::EnumerateDevices();
-            auto newMics = AudioEngine::EnumerateCaptureDevices();
-            auto newOuts = AudioEngine::EnumerateRenderDevices();
-            if (newCams.size() != cameras_.size()) cameras_ = std::move(newCams);
-            if (newMics.size() != mics_.size())    mics_    = std::move(newMics);
-            if (newOuts.size() != speakers_.size()) speakers_ = std::move(newOuts);
-            if (selCamera_  >= (int)cameras_.size())  selCamera_  = cameras_.empty()  ? -1 : 0;
-            if (selMic_     >= (int)mics_.size())     selMic_     = mics_.empty()     ? -1 : 0;
-            if (selSpeaker_ >= (int)speakers_.size()) selSpeaker_ = -1;
+            RefreshDeviceListsIfChanged();
         }
 
         // Gate on DWM's waitable so we only produce a frame when the swap
@@ -400,6 +529,7 @@ void Application::RefreshCameraList()
     cameras_ = VideoCapture::EnumerateDevices();
     if (selCamera_ >= (int)cameras_.size())
         selCamera_ = cameras_.empty() ? -1 : 0;
+    RebuildDeviceNameCache();
 }
 
 void Application::RefreshMicList()
@@ -407,6 +537,7 @@ void Application::RefreshMicList()
     mics_ = AudioEngine::EnumerateCaptureDevices();
     if (selMic_ >= (int)mics_.size())
         selMic_ = mics_.empty() ? -1 : 0;
+    RebuildDeviceNameCache();
 }
 
 void Application::RefreshSpeakerList()
@@ -414,6 +545,7 @@ void Application::RefreshSpeakerList()
     speakers_ = AudioEngine::EnumerateRenderDevices();
     if (selSpeaker_ >= (int)speakers_.size())
         selSpeaker_ = -1;
+    RebuildDeviceNameCache();
 }
 
 void Application::SetMicVolumePercent(float pct)
@@ -493,6 +625,9 @@ void Application::StopCapture()
     if (!running_) return;
     video_.Stop();
     audio_.Stop();
+    // video_.Stop() has joined the MF pipeline, so nothing can submit a new
+    // frame from here on and the frame buffers can go back to the driver.
+    renderer_.ReleaseVideoResources();
     running_ = false;
     captureStartMs_ = 0;
 }

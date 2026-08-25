@@ -426,6 +426,27 @@ bool Renderer::CreatePipeline()
     return true;
 }
 
+void Renderer::ReleaseVideoResources()
+{
+    std::lock_guard<std::mutex> lk(videoTexMutex_);
+    convSRV_.Reset();
+    convRTV_.Reset();
+    convTex_.Reset();
+    convW_ = convH_ = 0;
+    videoSRVChroma_.Reset();
+    videoSRV_.Reset();
+    videoTex_.Reset();
+    videoW_ = videoH_ = 0;
+    videoFormat_ = DXGI_FORMAT_UNKNOWN;
+    // resize(0) alone keeps the capacity; swap with an empty vector to hand
+    // the pages back.
+    std::vector<uint8_t>().swap(cpuFlipBuf_);
+    pendingSubmitQpc_.store(0, std::memory_order_relaxed);
+    drawnSubmitQpc_ = 0;
+    videoLatencyMs_ = 0.0f;
+    if (context_) context_->ClearState();
+}
+
 // ---- Color space -------------------------------------------------------------
 void Renderer::SetVideoColorSpace(int matrix, bool fullRange)
 {
