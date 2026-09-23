@@ -13,7 +13,8 @@ Built and tested with an **Anyoyo 4K60 capture card** at up to **3840×2160** an
 - DirectX 11 renderer with a flip-model swap chain and a textured quad showing the live camera feed
 - **Up to 4K (3840×2160) capture and 120/144/240 Hz modes**, with a mode picker that lists every native format the device exposes
 - **NV12 direct capture** — frames are taken in the card's native 4:2:0 layout and converted to RGB on the GPU by our own shader, skipping Media Foundation's per-frame RGB32 conversion (BT.601 / BT.709 / BT.2020, limited or full range)
-- **V-Sync or uncapped presentation** (DXGI tearing) with an optional FPS limiter, so a 144 Hz capture isn't held down to a 60 Hz desktop
+- **Auto / V-Sync / uncapped presentation** — Auto keeps vblank pacing unless the capture actually outruns the display, and the FPS limiter runs off a high-resolution timer rather than `Sleep()`
+- **Colour range and matrix overrides** for devices that mis-declare their encoding
 - Media Foundation video capture on the GPU path (DXGI device manager, zero CPU round-trip)
 - WASAPI mic passthrough with event-driven capture + render threads and a lock-free, frame-aligned ring buffer
 - **Low-latency audio**: IAudioClient3 minimum engine period where the driver allows it, an adjustable passthrough delay (5–200 ms), and automatic drift trimming so latency can't creep up over a session
@@ -78,12 +79,28 @@ Modes below 24 fps are never chosen automatically.
 
 **3. Presentation mode** (Advanced).
 
+- **Auto** (default) — V-Sync unless the capture genuinely runs faster than the display, in which case it switches to tearing. This is what you want almost always.
 - **V-Sync** — one frame per display refresh, paced by the compositor's waitable object. Smoothest; caps the app at your monitor's Hz.
-- **Uncapped** — `DXGI_PRESENT_ALLOW_TEARING`, presents as soon as a frame is drawn. Use this when the capture runs faster than the desktop refresh (e.g. 144 Hz capture on a 60 Hz screen) and you want OBS/Discord to see every frame. The optional **FPS limit** slider keeps the loop from spinning faster than frames actually arrive — set it to your capture framerate.
+- **Uncapped** — `DXGI_PRESENT_ALLOW_TEARING`, presents as soon as a frame is drawn. Only useful when the capture outruns the display (e.g. 144 Hz capture on a 60 Hz screen). The optional **FPS limit** slider keeps the loop from spinning faster than frames actually arrive.
+
+> Uncapped on a display that is *already* fast enough for the capture is strictly worse than V-Sync: it throws away vblank alignment and gains nothing. Auto exists so you never have to think about it.
 
 The status line shows what was actually negotiated, e.g. `3840x2160 @ 60  NV12  GPU • capture 60 fps • render 60 fps`, plus the current display refresh rate.
 
 > If a mode doesn't behave, turn on **Debug console** in Advanced — it prints every native type the device offers, which one was chosen, and the negotiated output format.
+
+---
+
+## Colour
+
+Capture devices frequently mis-declare their colour encoding, and getting it wrong is what makes a feed look washed out (blacks lifted to grey) or crushed (shadow detail gone). Advanced → **Colour** has two overrides:
+
+- **Range** — Auto / Limited (16–235) / Full (0–255)
+- **Matrix** — Auto / BT.601 / BT.709 / BT.2020
+
+Auto follows what the device reports, which the panel shows next to the controls while capturing. Overrides apply to the NV12 path — where the app does the YUV→RGB conversion in its own shader — and take effect immediately, so you can flip between them while watching the picture.
+
+On the RGB32 path the conversion happens inside Media Foundation. The app now explicitly asks for full-range RGB output; without that, the video processor is free to hand back 16–235 RGB and the whole picture comes out low-contrast.
 
 ---
 
@@ -274,7 +291,13 @@ The list only ever shows what the device reports. USB bandwidth matters: a 4K60 
 Turn off **NV12 direct capture** in Advanced and press Start again — that falls back to Media Foundation's own RGB32 conversion.
 
 **Capture is 144 fps but the app shows ~60 fps**
-That is the display refresh. Switch Presentation to **Uncapped** in Advanced.
+That is the display refresh. Presentation → **Auto** switches to tearing by itself when the capture outruns the display; **Uncapped** forces it.
+
+**The video stutters or judders**
+Check Presentation in Advanced. **Uncapped** with an FPS limit is paced by a software timer rather than the display, and on a monitor that is already fast enough for the capture it only removes vblank alignment. Use **Auto**. (Before 1.4.0 that limiter used `Sleep()`, whose 15.6 ms granularity made a 60 fps cap alternate between 15.6 ms and 31.2 ms frames — about one frame in twelve arrived a whole frame late.)
+
+**Colours look washed out, or blacks are crushed**
+The device is mis-reporting its colour range. Advanced → Colour → **Range** → force Full or Limited, whichever the device isn't claiming. The panel shows what it claims while capture is running.
 
 **`SetCurrentMediaType(NV12/RGB32) failed`**
 The device rejected both output formats. Install the latest GPU drivers, and try pinning a specific Mode instead of Auto.

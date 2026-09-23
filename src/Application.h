@@ -81,8 +81,23 @@ public:
     void           SetAutoModePreference(ModePreference p);
 
     bool IsTearingSupported() const { return renderer_.TearingSupported(); }
-    bool IsUncapped()         const { return renderer_.GetPresentMode() == Renderer::PresentMode::Tearing; }
-    void SetUncapped(bool on);
+    // 0 = V-Sync, 1 = Uncapped, 2 = Auto.
+    int  PresentModeIndex() const { return (int)renderer_.GetPresentMode(); }
+    void SetPresentModeIndex(int idx);
+    // What Auto actually resolved to right now.
+    bool IsEffectivelyUncapped() const
+        { return renderer_.EffectivePresentMode() == Renderer::PresentMode::Tearing; }
+
+    // Colour overrides for the NV12 path.
+    // range: 0 = as reported, 1 = limited, 2 = full.
+    int  ColorRangeSetting()  const { return settings_.colorRange; }
+    void SetColorRangeSetting(int r);
+    // matrix: 0 = as reported, 1 = BT.601, 2 = BT.709, 3 = BT.2020.
+    int  ColorMatrixSetting() const { return settings_.colorMatrix; }
+    void SetColorMatrixSetting(int m);
+    // What the capture reported, for the UI to show next to the overrides.
+    int  ReportedColorMatrix() const { return video_.ColorMatrix(); }
+    bool ReportedFullRange()   const { return video_.FullRange(); }
 
     int  FpsLimit() const { return renderer_.GetFpsLimit(); }
     void SetFpsLimit(int fps);
@@ -172,6 +187,7 @@ private:
     int   selSpeaker_    = -1;
 
     void  RefreshCameraModes();
+    void  ApplyColorSettings();
 
     float micVolumePct_ = 100.0f;
     bool  running_      = false;

@@ -87,6 +87,16 @@ bool Renderer::Initialize(HWND hwnd, int width, int height)
     width_ = width;
     height_ = height;
 
+    // A high-resolution waitable timer keeps the FPS limiter honest. Without
+    // it the limiter falls back to Sleep(), whose granularity is the system
+    // timer period — 15.6 ms by default, which is *worse* than the 16.67 ms
+    // frame it is trying to time.
+    frameTimer_ = CreateWaitableTimerExW(nullptr, nullptr,
+                                         CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
+                                         TIMER_ALL_ACCESS);
+    if (!frameTimer_)   // pre-1803 Windows
+        frameTimer_ = CreateWaitableTimerExW(nullptr, nullptr, 0, TIMER_ALL_ACCESS);
+
     if (!CreateDeviceAndSwap(hwnd, width, height)) return false;
     if (!CreateBackbufferViews())                  return false;
     if (!CreatePipeline())                         return false;
@@ -115,6 +125,7 @@ void Renderer::Shutdown()
         // Waitable handle is owned by the swap chain; don't CloseHandle.
         frameLatencyWaitable_ = nullptr;
     }
+    if (frameTimer_) { CloseHandle(frameTimer_); frameTimer_ = nullptr; }
     swap_.Reset();
     if (context_) context_->ClearState();
     context_.Reset();
@@ -289,6 +300,13 @@ void Renderer::Resize(int width, int height)
 
 int Renderer::MonitorRefreshHz() const
 {
+    // Cached: this used to run GetMonitorInfo + EnumDisplaySettings on every
+    // frame because the status line asks for it.
+    const uint64_t now = GetTickCount64();
+    if (cachedHz_ > 0 && now - cachedHzTickMs_ < 1000) return cachedHz_;
+    cachedHzTickMs_ = now;
+    cachedHz_ = 0;
+
     if (!hwnd_) return 0;
     HMONITOR mon = MonitorFromWindow(hwnd_, MONITOR_DEFAULTTONEAREST);
     MONITORINFOEXW mi{};
@@ -297,7 +315,20 @@ int Renderer::MonitorRefreshHz() const
     DEVMODEW dm{};
     dm.dmSize = sizeof(dm);
     if (!EnumDisplaySettingsW(mi.szDevice, ENUM_CURRENT_SETTINGS, &dm)) return 0;
-    return (int)dm.dmDisplayFrequency;
+    cachedHz_ = (int)dm.dmDisplayFrequency;
+    return cachedHz_;
+}
+
+// Auto resolves to tearing only when the capture genuinely outruns the
+// display. Presenting 60 fps content out of phase with a 60 Hz panel is
+// strictly worse than letting the compositor pace it.
+Renderer::PresentMode Renderer::EffectivePresentMode() const
+{
+    if (presentMode_ != PresentMode::Auto) return presentMode_;
+    if (!tearingSupported_) return PresentMode::VSync;
+    const int hz = MonitorRefreshHz();
+    if (hz <= 0 || sourceFps_ <= 0.0f) return PresentMode::VSync;
+    return (sourceFps_ > (float)hz + 1.0f) ? PresentMode::Tearing : PresentMode::VSync;
 }
 
 void Renderer::SetPresentMode(PresentMode m)
@@ -309,7 +340,7 @@ void Renderer::SetPresentMode(PresentMode m)
 
 void Renderer::WaitForFrame()
 {
-    if (presentMode_ == PresentMode::VSync) {
+    if (EffectivePresentMode() == PresentMode::VSync) {
         if (!frameLatencyWaitable_) return;
         // 200 ms bail-out — if DWM never signals we'd rather keep the UI
         // responsive than deadlock.
@@ -317,9 +348,14 @@ void Renderer::WaitForFrame()
         return;
     }
 
-    // Tearing mode: DWM isn't pacing us, so honour the user's FPS cap
-    // ourselves. Sleep for the bulk of the wait, then spin the last ~1 ms so
-    // the cadence stays tight at 144/240 Hz.
+    // Tearing mode: DWM isn't pacing us, so honour the user's FPS cap here.
+    //
+    // This used to Sleep() for the bulk of the wait. Sleep rounds up to the
+    // system timer granularity, which is 15.6 ms unless some process has
+    // raised it — so a 60 fps cap produced an alternating 15.6/31.2 ms
+    // cadence and roughly one frame in twelve arrived a whole frame late.
+    // A high-resolution waitable timer holds the same cap to well under a
+    // millisecond.
     if (fpsLimit_ <= 0 || qpcFreq_ <= 0) return;
 
     LARGE_INTEGER now{};
@@ -329,11 +365,23 @@ void Renderer::WaitForFrame()
         nextFrameQpc_ = (uint64_t)now.QuadPart + period;
         return;
     }
-    while ((uint64_t)now.QuadPart < nextFrameQpc_) {
-        const int64_t remainingUs = (int64_t)((nextFrameQpc_ - (uint64_t)now.QuadPart) * 1000000 / qpcFreq_);
-        if (remainingUs > 1500) Sleep((DWORD)((remainingUs - 1000) / 1000));
-        else                    YieldProcessor();
+
+    for (;;) {
         QueryPerformanceCounter(&now);
+        if ((uint64_t)now.QuadPart >= nextFrameQpc_) break;
+        const int64_t remain100ns =
+            (int64_t)((nextFrameQpc_ - (uint64_t)now.QuadPart) * 10000000 / qpcFreq_);
+        // Wake ~0.3 ms early and spin the remainder, so we never overshoot.
+        if (remain100ns > 5000 && frameTimer_) {
+            LARGE_INTEGER due;
+            due.QuadPart = -(remain100ns - 3000);
+            if (SetWaitableTimer(frameTimer_, &due, 0, nullptr, nullptr, FALSE))
+                WaitForSingleObject(frameTimer_, 100);
+            else
+                YieldProcessor();
+        } else {
+            YieldProcessor();
+        }
     }
     nextFrameQpc_ += period;
 }
@@ -798,7 +846,7 @@ void Renderer::EndFrame()
     // to the desktop's composition rate.
     UINT sync  = frameLatencyWaitable_ ? 0 : 1;
     UINT flags = 0;
-    if (presentMode_ == PresentMode::Tearing &&
+    if (EffectivePresentMode() == PresentMode::Tearing &&
         (swapFlags_ & DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING)) {
         sync  = 0;
         flags = DXGI_PRESENT_ALLOW_TEARING;

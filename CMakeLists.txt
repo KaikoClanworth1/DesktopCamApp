@@ -7,7 +7,7 @@ cmake_minimum_required(VERSION 3.20)
 # whatever an existing build directory was first configured with, so editing
 # this line would silently do nothing and the binary would keep reporting a
 # stale version (and keep offering itself an update forever).
-set(DCA_VERSION "1.3.0")
+set(DCA_VERSION "1.4.0")
 
 # A build with an empty or malformed version is worse than useless: the
 # updater parses it as 0.0.0, so every release looks newer and the app offers

@@ -22,6 +22,7 @@ public:
     {
         VSync   = 0, // gate on DWM's waitable, one frame per composition
         Tearing = 1, // present immediately, allow tearing (needs ALLOW_TEARING)
+        Auto    = 2, // V-Sync unless the source is faster than the display
     };
 
     Renderer();
@@ -39,7 +40,14 @@ public:
 
     void  SetPresentMode(PresentMode m);
     PresentMode GetPresentMode() const { return presentMode_; }
+    // What Auto actually resolved to this frame.
+    PresentMode EffectivePresentMode() const;
     bool  TearingSupported() const { return tearingSupported_; }
+
+    // Framerate the capture negotiated, so Auto can tell whether tearing
+    // would buy anything. 0 when nothing is capturing.
+    void  SetSourceFps(float fps) { sourceFps_ = fps; }
+    float GetSourceFps() const    { return sourceFps_; }
 
     // Optional cap for the render loop, in frames per second. 0 = unlimited.
     // Only meaningful in Tearing mode (VSync is already paced by DWM).
@@ -124,6 +132,13 @@ private:
     CPtr<ID3D11DeviceContext>     context_;
     CPtr<IDXGISwapChain2>         swap_;
     HANDLE                        frameLatencyWaitable_ = nullptr;
+    // High-resolution timer for the FPS limiter. Sleep() rounds to the
+    // system timer granularity — 15.6 ms unless something raised it — which
+    // turns a 60 fps cap into an alternating 15.6/31.2 ms judder.
+    HANDLE                        frameTimer_ = nullptr;
+    float                         sourceFps_ = 0.0f;
+    mutable int                   cachedHz_ = 0;
+    mutable uint64_t              cachedHzTickMs_ = 0;
     UINT                          swapFlags_ = 0;
     bool                          tearingSupported_ = false;
     bool                          nv12Supported_    = false;

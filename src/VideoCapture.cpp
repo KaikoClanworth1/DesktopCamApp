@@ -523,9 +523,22 @@ bool VideoCapture::Start(ID3D11Device* device, const std::wstring& symbolicLink,
     }
 
     if (FAILED(hr)) {
+        // RGB is a full-range format. If we don't say so, Media Foundation's
+        // video processor may hand back 16-235 RGB — the whole picture comes
+        // out low-contrast and slightly grey.
         CPtr<IMFMediaType> rgbType;
-        if (SUCCEEDED(makeOutputType(MFVideoFormat_RGB32, rgbType.GetAddressOf())))
+        if (SUCCEEDED(makeOutputType(MFVideoFormat_RGB32, rgbType.GetAddressOf()))) {
+            rgbType->SetUINT32(MF_MT_VIDEO_NOMINAL_RANGE, MFNominalRange_0_255);
             hr = reader_->SetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM, nullptr, rgbType.Get());
+            if (FAILED(hr)) {
+                // Some devices reject the tagged type — retry untagged.
+                wprintf(L"[mf] RGB32 with full-range tag rejected (0x%08lX), retrying plain\n",
+                        (unsigned long)hr);
+                CPtr<IMFMediaType> plain;
+                if (SUCCEEDED(makeOutputType(MFVideoFormat_RGB32, plain.GetAddressOf())))
+                    hr = reader_->SetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM, nullptr, plain.Get());
+            }
+        }
         if (FAILED(hr)) {
             SetError(L"SetCurrentMediaType(NV12/RGB32) failed");
             source_->Shutdown();

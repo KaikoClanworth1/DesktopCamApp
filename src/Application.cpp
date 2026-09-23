@@ -121,9 +121,22 @@ void Application::ApplyLoadedSettings()
 
     // Presentation pacing. Tearing mode silently degrades to V-Sync when the
     // GPU/DXGI can't do it.
-    renderer_.SetPresentMode(settings_.presentMode == 1
-        ? Renderer::PresentMode::Tearing
-        : Renderer::PresentMode::VSync);
+    //
+    // One-time repair: "Uncapped" with a limit at or below the display's
+    // refresh rate is strictly worse than V-Sync — it throws away vblank
+    // alignment to gain nothing, and the judder that produces was the whole
+    // reason this setting existed. Move those users to Auto.
+    if (settings_.presentMode == 1 && settings_.fpsLimit > 0) {
+        const int hz = renderer_.MonitorRefreshHz();
+        if (hz > 0 && settings_.fpsLimit <= hz) {
+            wprintf(L"[dx] Uncapped @ %d fps on a %d Hz display buys nothing — switching to Auto\n",
+                    settings_.fpsLimit, hz);
+            settings_.presentMode = 2;
+            MarkSettingsDirty();
+        }
+    }
+    if (settings_.presentMode < 0 || settings_.presentMode > 2) settings_.presentMode = 2;
+    renderer_.SetPresentMode((Renderer::PresentMode)settings_.presentMode);
     renderer_.SetFpsLimit(settings_.fpsLimit);
 
     if (window_.Hwnd()) {
@@ -261,7 +274,7 @@ void Application::CaptureCurrentSelectionIntoSettings()
     settings_.debugConsole = IsDebugConsoleShown();
     settings_.borderless      = window_.IsBorderless();
     settings_.performanceMode = performanceMode_;
-    settings_.presentMode     = (renderer_.GetPresentMode() == Renderer::PresentMode::Tearing) ? 1 : 0;
+    settings_.presentMode     = (int)renderer_.GetPresentMode();
     settings_.fpsLimit        = renderer_.GetFpsLimit();
     settings_.nvsrEnabled     = upscaler_.IsEnabled();
     settings_.nvsrScale       = upscaler_.GetScale();
@@ -343,10 +356,44 @@ void Application::SetAutoModePreference(ModePreference p)
     MarkSettingsDirty();
 }
 
-void Application::SetUncapped(bool on)
+void Application::SetPresentModeIndex(int idx)
 {
-    renderer_.SetPresentMode(on ? Renderer::PresentMode::Tearing
-                                : Renderer::PresentMode::VSync);
+    if (idx < 0 || idx > 2) idx = 2;
+    renderer_.SetPresentMode((Renderer::PresentMode)idx);
+    settings_.presentMode = idx;
+    MarkSettingsDirty();
+}
+
+// Resolves "as reported by the device" against the user's overrides and hands
+// the result to the shader.
+void Application::ApplyColorSettings()
+{
+    int  matrix = video_.ColorMatrix();
+    bool full   = video_.FullRange();
+
+    switch (settings_.colorMatrix) {
+        case 1: matrix = 0; break;   // BT.601
+        case 2: matrix = 1; break;   // BT.709
+        case 3: matrix = 2; break;   // BT.2020
+        default: break;              // as reported
+    }
+    if (settings_.colorRange == 1)      full = false;
+    else if (settings_.colorRange == 2) full = true;
+
+    renderer_.SetVideoColorSpace(matrix, full);
+}
+
+void Application::SetColorRangeSetting(int r)
+{
+    settings_.colorRange = (r < 0 || r > 2) ? 0 : r;
+    ApplyColorSettings();
+    MarkSettingsDirty();
+}
+
+void Application::SetColorMatrixSetting(int m)
+{
+    settings_.colorMatrix = (m < 0 || m > 3) ? 0 : m;
+    ApplyColorSettings();
     MarkSettingsDirty();
 }
 
@@ -606,8 +653,10 @@ void Application::StartCapture()
             opts);
 
         // The shader needs to know which YUV matrix MF negotiated before the
-        // first NV12 frame lands.
-        renderer_.SetVideoColorSpace(video_.ColorMatrix(), video_.FullRange());
+        // first NV12 frame lands, and Auto needs the capture rate to decide
+        // whether tearing would buy anything.
+        ApplyColorSettings();
+        renderer_.SetSourceFps(video_.NegotiatedFps());
     }
 
     // Audio
@@ -625,6 +674,7 @@ void Application::StopCapture()
     if (!running_) return;
     video_.Stop();
     audio_.Stop();
+    renderer_.SetSourceFps(0.0f);
     // video_.Stop() has joined the MF pipeline, so nothing can submit a new
     // frame from here on and the frame buffers can go back to the driver.
     renderer_.ReleaseVideoResources();

@@ -81,6 +81,8 @@ bool Settings::Load()
         else if (key == "performance_mode") performanceMode  = (val == "1" || val == "true");
         else if (key == "mode_preference")  modePreference   = std::atoi(val.c_str());
         else if (key == "present_mode")     presentMode      = std::atoi(val.c_str());
+        else if (key == "color_range")      colorRange       = std::atoi(val.c_str());
+        else if (key == "color_matrix")     colorMatrix      = std::atoi(val.c_str());
         else if (key == "fps_limit")        fpsLimit         = std::atoi(val.c_str());
         else if (key == "use_nv12")         useNV12          = (val == "1" || val == "true");
         else if (key == "update_check_on_start") updateCheckOnStart = (val == "1" || val == "true");
@@ -118,6 +120,8 @@ bool Settings::Save() const
     f << "performance_mode=" << (performanceMode ? 1 : 0)  << "\n";
     f << "mode_preference="  << modePreference             << "\n";
     f << "present_mode="     << presentMode                << "\n";
+    f << "color_range="      << colorRange                 << "\n";
+    f << "color_matrix="     << colorMatrix                << "\n";
     f << "fps_limit="        << fpsLimit                   << "\n";
     f << "use_nv12="         << (useNV12 ? 1 : 0)          << "\n";
     f << "update_check_on_start=" << (updateCheckOnStart ? 1 : 0) << "\n";

@@ -483,10 +483,10 @@ void UI::Draw(Application& app)
         const int hz = app.MonitorRefreshHz();
         if (hz > 0) {
             ImGui::Text("Display: %d Hz  \xE2\x80\xA2  %s", hz,
-                        app.IsUncapped() ? "uncapped (tearing allowed)" : "v-sync");
+                        app.IsEffectivelyUncapped() ? "uncapped (tearing allowed)" : "v-sync");
             // Capturing faster than the screen can show is fine for OBS /
             // Discord (they pull frames from the swap chain), but say so.
-            if (running && app.NegotiatedFps() > (float)hz + 1.0f && !app.IsUncapped()) {
+            if (running && app.NegotiatedFps() > (float)hz + 1.0f && !app.IsEffectivelyUncapped()) {
                 ImGui::PopStyleColor();
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.75f, 0.35f, 1.0f));
                 ImGui::TextWrapped("Capturing at %.0f fps on a %d Hz display \xE2\x80\x94 turn on "
@@ -654,26 +654,35 @@ void UI::Draw(Application& app)
         ImGui::TextUnformatted("Presentation");
         {
             const bool canTear = app.IsTearingSupported();
-            if (!canTear) ImGui::BeginDisabled();
-            const int curPresent = app.IsUncapped() ? 1 : 0;
-            const int pick = Segmented("present", curPresent, "V-Sync", "Uncapped");
-            if (pick != curPresent) app.SetUncapped(pick == 1);
-            if (!canTear) ImGui::EndDisabled();
+            // Order matches Renderer::PresentMode: 0 V-Sync, 1 Uncapped, 2 Auto.
+            const char* presentItems[] = { "V-Sync", "Uncapped (allow tearing)", "Auto (recommended)" };
+            int curPresent = app.PresentModeIndex();
+            if (curPresent < 0 || curPresent > 2) curPresent = 2;
+            ImGui::SetNextItemWidth(-120);
+            if (ImGui::Combo("Mode##present", &curPresent, presentItems, 3))
+                app.SetPresentModeIndex(curPresent);
 
             ImGui::PushStyleColor(ImGuiCol_Text, kDim);
-            if (!canTear) {
+            if (!canTear && curPresent == 1) {
                 ImGui::TextWrapped("Uncapped needs DXGI tearing support (Windows 10+ with a "
-                                   "WDDM 2.0 driver) \xE2\x80\x94 not available here.");
-            } else if (app.IsUncapped()) {
+                                   "WDDM 2.0 driver) \xE2\x80\x94 not available here, using V-Sync.");
+            } else if (curPresent == 2) {
+                ImGui::TextWrapped("V-Sync unless the capture actually runs faster than your "
+                                   "display, in which case it switches to tearing so no frame is "
+                                   "held back. Right now: %s.",
+                                   app.IsEffectivelyUncapped() ? "uncapped" : "v-sync");
+            } else if (curPresent == 1) {
                 ImGui::TextWrapped("Presents every frame as soon as it is drawn, so a 120/144 Hz "
-                                   "capture isn't held down to the desktop refresh rate. Can tear.");
+                                   "capture isn't held down to the desktop refresh rate. Can tear, "
+                                   "and on a display that is already fast enough for the capture "
+                                   "it only costs you vblank alignment \xE2\x80\x94 use Auto.");
             } else {
                 ImGui::TextWrapped("One frame per display refresh. Smoothest, but caps the app at "
                                    "your monitor's Hz.");
             }
             ImGui::PopStyleColor();
 
-            if (app.IsUncapped()) {
+            if (curPresent == 1) {
                 int limit = app.FpsLimit();
                 ImGui::SetNextItemWidth(-120);
                 if (ImGui::SliderInt("FPS limit", &limit, 0, 360,
@@ -690,6 +699,36 @@ void UI::Draw(Application& app)
         }
 
         // ---- Capture pipeline --------------------------------------------
+        // ---- Colour -------------------------------------------------------
+        ImGui::Spacing();
+        ImGui::TextUnformatted("Colour");
+        {
+            const char* rangeItems[]  = { "As reported by device", "Limited (16-235)", "Full (0-255)" };
+            const char* matrixItems[] = { "As reported by device", "BT.601", "BT.709", "BT.2020" };
+
+            int curRange = app.ColorRangeSetting();
+            ImGui::SetNextItemWidth(-120);
+            if (ImGui::Combo("Range", &curRange, rangeItems, 3))
+                app.SetColorRangeSetting(curRange);
+
+            int curMatrix = app.ColorMatrixSetting();
+            ImGui::SetNextItemWidth(-120);
+            if (ImGui::Combo("Matrix", &curMatrix, matrixItems, 4))
+                app.SetColorMatrixSetting(curMatrix);
+
+            ImGui::PushStyleColor(ImGuiCol_Text, kDim);
+            if (running) {
+                const int m = app.ReportedColorMatrix();
+                ImGui::Text("Device reports: %s, %s range",
+                            m == 0 ? "BT.601" : m == 1 ? "BT.709" : "BT.2020",
+                            app.ReportedFullRange() ? "full" : "limited");
+            }
+            ImGui::TextWrapped("If the picture looks washed out or the blacks are crushed, the "
+                               "device is mis-reporting its range \xE2\x80\x94 force the other one. "
+                               "Applies to NV12 direct capture and takes effect immediately.");
+            ImGui::PopStyleColor();
+        }
+
         ImGui::Spacing();
         bool nv12 = app.UseNV12();
         if (ImGui::Checkbox("NV12 direct capture (recommended)", &nv12)) app.SetUseNV12(nv12);

@@ -33,9 +33,15 @@ struct Settings
     // 0 = highest resolution first (4K60), 1 = highest framerate first (1080p144).
     int          modePreference = 0;
 
-    // 0 = V-Sync (paced by the compositor), 1 = allow tearing (uncapped —
-    // lets a 144 Hz capture through on a 60 Hz desktop).
-    int          presentMode = 0;
+    // 0 = V-Sync (paced by the compositor), 1 = allow tearing (uncapped),
+    // 2 = Auto: V-Sync unless the capture genuinely outruns the display.
+    int          presentMode = 2;
+
+    // Colour handling for the NV12 path. 0 = follow what the device reports,
+    // 1 = force limited (16-235), 2 = force full (0-255).
+    int          colorRange = 0;
+    // 0 = follow the device, 1 = BT.601, 2 = BT.709, 3 = BT.2020.
+    int          colorMatrix = 0;
 
     // Render-loop cap in FPS for the tearing path. 0 = unlimited.
     int          fpsLimit = 0;
