@@ -649,6 +649,15 @@ void UI::Draw(Application& app)
             : "Smoother output \xE2\x80\x94 queues up to 2 frames ahead.");
         ImGui::PopStyleColor();
 
+		// ---- Display -----------------------------------------------------
+		ImGui::Spacing();
+        ImGui::TextUnformatted("Display");
+        {
+            bool preventDisplaySleep = app.IsDisplaySleepPreventionEnabled();
+            if (ImGui::Checkbox("Prevent display sleep during capture", &preventDisplaySleep))
+                app.SetDisplaySleepPreventionEnabled(preventDisplaySleep);
+        }
+
         // ---- Presentation ------------------------------------------------
         ImGui::Spacing();
         ImGui::TextUnformatted("Presentation");

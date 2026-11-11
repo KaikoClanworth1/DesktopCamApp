@@ -350,6 +350,22 @@ void Application::SetPerformanceMode(bool p)
     MarkSettingsDirty();
 }
 
+void Application::SetDisplaySleepPreventionEnabled(bool enabled)
+{
+	if (settings_.preventDisplaySleep == enabled)
+		return;
+
+	settings_.preventDisplaySleep = enabled;
+
+	if (running_)
+	{
+		SetThreadExecutionState(
+			ES_CONTINUOUS | (enabled ? ES_DISPLAY_REQUIRED : 0));
+	}
+
+	MarkSettingsDirty();
+}
+
 void Application::SetAutoModePreference(ModePreference p)
 {
     settings_.modePreference = (int)p;
@@ -667,6 +683,12 @@ void Application::StartCapture()
 
     running_ = true;
     captureStartMs_ = GetTickCount64();
+
+	// Prevent Windows from turning off the display while we're capturing.
+	if (settings_.preventDisplaySleep) {
+	    SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED);
+	}
+
 }
 
 void Application::StopCapture()
@@ -680,4 +702,7 @@ void Application::StopCapture()
     renderer_.ReleaseVideoResources();
     running_ = false;
     captureStartMs_ = 0;
+
+	// Restore normal Windows display timeout behaviour.
+	SetThreadExecutionState(ES_CONTINUOUS);
 }

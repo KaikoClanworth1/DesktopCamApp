@@ -78,6 +78,7 @@ bool Settings::Load()
         else if (key == "ui_hidden")     uiHidden     = (val == "1" || val == "true");
         else if (key == "debug_console") debugConsole = (val == "1" || val == "true");
         else if (key == "borderless")       borderless       = (val == "1" || val == "true");
+		else if (key == "prevent_display_sleep") preventDisplaySleep = (val == "1" || val == "true");
         else if (key == "performance_mode") performanceMode  = (val == "1" || val == "true");
         else if (key == "mode_preference")  modePreference   = std::atoi(val.c_str());
         else if (key == "present_mode")     presentMode      = std::atoi(val.c_str());
@@ -117,6 +118,7 @@ bool Settings::Save() const
     f << "ui_hidden="     << (uiHidden ? 1 : 0)      << "\n";
     f << "debug_console=" << (debugConsole ? 1 : 0)  << "\n";
     f << "borderless="       << (borderless ? 1 : 0)       << "\n";
+	f << "prevent_display_sleep=" << (preventDisplaySleep ? 1 : 0) << "\n";
     f << "performance_mode=" << (performanceMode ? 1 : 0)  << "\n";
     f << "mode_preference="  << modePreference             << "\n";
     f << "present_mode="     << presentMode                << "\n";
