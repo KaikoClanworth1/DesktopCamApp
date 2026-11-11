@@ -25,6 +25,9 @@ struct Settings
     bool         debugConsole  = false;
     bool         borderless    = false;
 
+	// Prevent Windows from turning off the display while we're capturing.
+	bool         preventDisplaySleep = true;
+
     // true  = Performance Mode (max frame latency 1, lower lag)
     // false = Standard Mode    (max frame latency 3, smoother)
     bool         performanceMode = false;

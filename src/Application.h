@@ -128,6 +128,9 @@ public:
     bool IsPerformanceMode() const { return performanceMode_; }
     void SetPerformanceMode(bool p);
 
+	bool IsDisplaySleepPreventionEnabled() const { return displaySleepPreventionEnabled_; }
+    void SetDisplaySleepPreventionEnabled(bool p);
+
     // NVIDIA Super Resolution (experimental).
     UpscalerNV& Upscaler() { return upscaler_; }
     const UpscalerNV& Upscaler() const { return upscaler_; }
@@ -193,6 +196,7 @@ private:
     bool  running_      = false;
     bool  uiHidden_     = false;
     bool  performanceMode_ = false;
+	bool  displaySleepPreventionEnabled_ = true;
     bool  upscalerProbeOk_ = false;
 
     uint64_t lastEnumTickMs_ = 0;
